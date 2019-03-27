@@ -22,8 +22,6 @@ from tkinter import Tk, filedialog
 np.warnings.filterwarnings('ignore') #Supress Numpy float to int deprecation warning
 
 
-
-
 class CommandError(Exception):
     '''The function in the usbdll.dll was not sucessfully evaluated'''
 
@@ -207,6 +205,24 @@ class Newport_1918c():
         :param interval_ms: float: Time between readings in ms.
         :return: [actualwavelength,mean_power,std_power]
         """
+        #Check that the probe status is good
+        while True:
+            try:
+                status = self.ask("PM:PWS?")
+                print(status)
+                status = int(status.split(", ")[1], 16)
+                
+                if(status & 1): #If bit(0) is 1 - detector is saturating
+                    print("WARNING: Detector is saturating, please turn off light source immediately!")
+                    quit()
+                elif(status & 4): #If bit(3) is 1 - detector is ranging
+                    print("Waiting for detector to finish ranging...")
+                else:
+                    break
+            except:
+                pass
+            
+        #Measure power
         self.set_wavelength(wavelength)
         self.write('PM:DS:Clear')
         self.write('PM:DS:SIZE ' + str(buff_size))
@@ -214,11 +230,12 @@ class Newport_1918c():
         self.write('PM:DS:ENable 1')
         while int(self.ask('PM:DS:COUNT?')) < buff_size:  # Waits for the buffer is full or not.
             time.sleep(0.001 * interval_ms * buff_size / 10)
-        actualwavelength = self.ask('PM:Lambda?')
+        min_power = self.ask('PM:STAT:MIN?')
+        max_power = self.ask('PM:STAT:MAX?')
         mean_power = self.ask('PM:STAT:MEAN?')
         std_power = self.ask('PM:STAT:SDEV?')
         self.write('PM:DS:Clear')
-        return [actualwavelength, mean_power, std_power]
+        return {"Min": min_power, "Max": max_power, "Mean": mean_power, "StDev": std_power}
 
     def read_instant_power(self, wavelength=700):
         """
@@ -284,7 +301,8 @@ class Newport_1918c():
 
     def plotter(self, data):
         plt.close('All')
-        plt.errorbar(data[0], data[1], data[2], fmt='ro')
+        print(data["Int"])
+        plt.errorbar(data["Int"], data["Mean"], data["StDev"], fmt='ro')
         plt.show()
 
     def plotter_spectra(self, dark_data, light_data):
@@ -384,9 +402,10 @@ def setup():
         
         #Get zero value
         dummy = input("Zeroing: Please turn off the reference monitor and press <Enter>")
-        [actualwavelength, mean_power, std_power] = nd.read_buffer(wavelength=setupDic["Lambda"], buff_size=setupDic["DS:SIZE"], interval_ms=setupDic["DS:INT"])
-        setupDic["ZEROVAL"] = mean_power
+        zeroDic = nd.read_buffer(wavelength=setupDic["Lambda"], buff_size=setupDic["DS:SIZE"], interval_ms=setupDic["DS:INT"])
+        setupDic["ZEROVAL"] = zeroDic["Mean"]
         nd.write("PM:ZEROVAL " + str(setupDic["ZEROVAL"]))
+        input("Setup complete, please turn on monitor and press <Enter>.")
     
     else:
         for key, value in setupDic.items():
@@ -414,17 +433,20 @@ if __name__ == '__main__':
         outDir = getDir()
         
         #Measure monitor intensities
-        
-    time.sleep(1)
-    pygame.display.quit()
-        drawImage(120)
-        quit()
-        #quit()
-        # 100 reading of the newport detector at 500 nm wavelength and plot them
-        [actualwavelength, mean_power, std_power] = nd.read_buffer(wavelength=500, buff_size=10, interval_ms=1)
-        #quit()
-        #dark_data = nd.sweep(510, 550, 10, buff_size=10, interval_ms=1)
-        #nd.plotter(dark_data)
+        nBin = 256
+        powerArray = {"Min": [None]*nBin, "Max": [None]*nBin, "Mean": [None]*nBin, "StDev": [None]*nBin, "Int": [None]*nBin} #Initialize measurement matrix
+        for a in range(nBin):
+            print("Testing image " + str(a+1) + " of " + str(nBin) + ".")
+            drawImage(a)
+            time.sleep(2)
+            tempDic = nd.read_buffer(wavelength=setupDic["Lambda"], buff_size=setupDic["DS:SIZE"], interval_ms=setupDic["DS:INT"])
+            for key, value in tempDic.items():
+                powerArray[key][a] = float(tempDic[key])
+            print(str(tempDic) + " " + str(a))
+            
+        pygame.display.quit()
+        pygame.quit()
+        nd.plotter(powerArray)
 
         # sweep the wavelength of the detector from 500 to 550 with an interval of 10 nm. At each wavelength the buffer size is 10 and the time between samples is 1 ms
         #light_data = nd.sweep(500, 550, 10, buff_size=10, interval_ms=1)
