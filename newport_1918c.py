@@ -9,10 +9,20 @@ Created on Sun Jan 12 13:06:17 2014
 from ctypes import *
 import time
 import os, sys
+import contextlib
 import matplotlib.pyplot as plt
 import warnings
 import numpy as np
+with contextlib.redirect_stdout(None): #Block pygame boot spam - https://stackoverflow.com/questions/51464455/why-when-import-pygame-it-prints-the-version-and-welcome-message-how-delete-it
+    import pygame #Show images and log keypress events
+from pygame.locals import * #Import pyGame constants locally
+from PIL import Image, ImageDraw #Draw images and save as PNG
+from tkinter import Tk, filedialog
+
 np.warnings.filterwarnings('ignore') #Supress Numpy float to int deprecation warning
+
+
+
 
 class CommandError(Exception):
     '''The function in the usbdll.dll was not sucessfully evaluated'''
@@ -22,7 +32,7 @@ class Newport_1918c():
     def __init__(self,**kwargs):
         try:
             self.LIBNAME = kwargs.get('LIBNAME',r"C:\Program Files (x86)\Newport\Newport USB Driver\Bin\usbdll.dll")
-            print(self.LIBNAME)
+            #print(self.LIBNAME)
             self.lib = windll.LoadLibrary(self.LIBNAME)
             self.product_id = kwargs.get('product_id',0xCEC7)
         except WindowsError as e:
@@ -58,7 +68,7 @@ class Newport_1918c():
                 self.status = 'Not Connected'
                 raise CommandError("Make sure the device is properly connected")
             else:
-                print('Number of devices connected: ' + str(num_devices.value) + ' device/devices')
+                #print('Number of devices connected: ' + str(num_devices.value) + ' device/devices')
                 self.status = 'Connected'
         except CommandError as e:
             print(e)
@@ -89,7 +99,7 @@ class Newport_1918c():
                 raise CommandError('Cannot get the instrument_list')
             else:
                 instrument_list = [arInstruments.value, arInstrumentsModel.value, arInstrumentsSN.value]
-                print('Arrays of Device Id\'s: Model number\'s: Serial Number\'s: ' + str(instrument_list))
+                #print('Arrays of Device Id\'s: Model number\'s: Serial Number\'s: ' + str(instrument_list))
                 return instrument_list
         except CommandError as e:
             print(e)
@@ -200,8 +210,7 @@ class Newport_1918c():
         self.set_wavelength(wavelength)
         self.write('PM:DS:Clear')
         self.write('PM:DS:SIZE ' + str(buff_size))
-        self.write('PM:DS:INT ' + str(
-            interval_ms * 10))  # to set 1 ms rate we have to give int value of 10. This is strange as manual says the INT should be in ms
+        self.write('PM:DS:INT ' + str(interval_ms * 10))  # to set 1 ms rate we have to give int value of 10. This is strange as manual says the INT should be in ms
         self.write('PM:DS:ENable 1')
         while int(self.ask('PM:DS:COUNT?')) < buff_size:  # Waits for the buffer is full or not.
             time.sleep(0.001 * interval_ms * buff_size / 10)
@@ -289,7 +298,7 @@ class Newport_1918c():
         opens a console to send commands. See the commands in the user manual.
 
         """
-        print('You are connected to the first device with deviceid/usb address ' + str(self.serial_number))
+        #print('You are connected to the first device with deviceid/usb address ' + str(self.serial_number))
         cmd = ''
         while cmd != 'exit()':
             cmd = input('Newport console, Type exit() to leave> ')
@@ -301,27 +310,120 @@ class Newport_1918c():
         else:
             print("Exiting the Newport console")
 
+#------------------------------------------------------Generate calibration image set--------------------------------------------------------------------------------
+def getDir(): #https://stackoverflow.com/questions/19944712/browse-for-file-path-in-python
+    root = Tk()
+    root.withdraw()
+    currdir = os.getcwd()
+    outDir = filedialog.askdirectory(parent=root, initialdir=currdir, title='Please select an output directory')
+    return outDir
 
-if __name__ == '__main__':
+def drawImage(intensity):
+    #Create reference image
+    displayObj = pygame.display.Info()
+    image = Image.new("RGB", (displayObj.current_w, displayObj.current_h), color=(0, intensity, 0)) #Create and image filled with background color
+    drawObject = ImageDraw.Draw(image) #Create drawing context
+    image.save(outDir + "temp.png", format="PNG")
+    
+    #Display reference image
+    windowSurfaceObj = pygame.display.set_mode((displayObj.current_w, displayObj.current_h), pygame.FULLSCREEN)
+    #windowSurfaceObj = pygame.display.set_mode((displayObj.current_w, displayObj.current_h))
+    tempImage = pygame.image.load(outDir + "temp.png")
+    #Hide mouse cursor
+    pygame.mouse.set_visible(False)
+    windowSurfaceObj.blit(tempImage,(0,0))
+    pygame.display.update()
+    
+    time.sleep(1)
+    pygame.display.quit()
+
+def setup():
+    global setupDic
+    
+    #Check if dictionary is set, if not, prompt for values
+    if "ATT" not in setupDic.keys():
+        while True:
+            #Select whether attenuator is present
+            att = input("Is the attenuator in use (\"yes\" or \"no\")>").lower()
+            if att.startswith("y") and "n" not in att:
+                att = 1
+                break
+            elif att.startswith("n") and "y" not in att:
+                att = 0
+                break
+            else:
+               print("ERROR: The answer must be \"yes\" or \"no\".")
+        setupDic["ATT"] = att
+
+
+    
+        #Get wavelength
+        minL = int(nd.ask('PM:MIN:Lambda?'))
+        maxL = int(nd.ask('PM:MAX:Lambda?'))
+        wl = -1
+        while wl < minL or wl > maxL:
+            wl = input("Please enter the wavelength (" + str(minL) + "-" + str(maxL) + ")>")
+            try:
+                wl=int(wl)
+            except ValueError:
+                print("ERROR: The wavelength must be an integer value.")
+                wl=-1
+        setupDic["Lambda"] = wl
+            
+        #Select the desired number of averages
+        nAv = -1
+        while nAv < 1:
+            nAv = input("Please enter the number of averages>")
+            try:
+                nAv=int(nAv)
+            except ValueError:
+                print("ERROR: The wavelength must be an integer value.")
+                nAv=-1
+        setupDic["DS:SIZE"] = nAv
+        
+        #Setup current state before zeroing
+        for key, value in setupDic.items():
+            nd.write("PM:" + key + " " + str(value))
+        
+        #Get zero value
+        dummy = input("Zeroing: Please turn off the reference monitor and press <Enter>")
+        [actualwavelength, mean_power, std_power] = nd.read_buffer(wavelength=setupDic["Lambda"], buff_size=setupDic["DS:SIZE"], interval_ms=setupDic["DS:INT"])
+        setupDic["ZEROVAL"] = mean_power
+        nd.write("PM:ZEROVAL " + str(setupDic["ZEROVAL"]))
+    
+    else:
+        for key, value in setupDic.items():
+            nd.write("PM:" + key + " " + str(value))
+    
+if __name__ == '__main__':    
+    pygame.init() #Start pygame
+    
     # Initialze a instrument object. You might have to change the LIBname or product_id.    
     nd = Newport_1918c(LIBNAME = r"C:\Program Files (x86)\Newport\Newport USB Driver\Bin\usbdll.dll",product_id=0xCEC7 )
-
     # Print the status of the newport detector.
-    print(nd.status)
+    #print(nd.status)
 
     if nd.status == 'Connected':
-        print('Serial number is '+ str(nd.serial_number))
-        print('Model name is ' + str(nd.model_number))
+        #print('Serial number is '+ str(nd.serial_number))
+        #print('Model name is ' + str(nd.model_number))
 
         # Print the IDN of the newport detector.
-        time.sleep(1)
         print('Connected to ' + nd.ask('*IDN?'))
+        print("Make sure to use the attenuator if the output is over 4.0 mW!")
+        
+        #Get output directory for calibration info
+        setupDic = {"MODE": 0, "ANALOGFILTER": 4, "DIGITALFILTER": 10000, "AUTO": 1, "UNITS": 2, "DS:INT": 10, "ZEROVAL": 0}
+        setup()
+        print("1")
+        outDir = getDir()
+        drawImage(120)
+        quit()
         #quit()
         # 100 reading of the newport detector at 500 nm wavelength and plot them
         [actualwavelength, mean_power, std_power] = nd.read_buffer(wavelength=500, buff_size=10, interval_ms=1)
         #quit()
-        dark_data = nd.sweep(510, 550, 10, buff_size=10, interval_ms=1)
-        nd.plotter(dark_data)
+        #dark_data = nd.sweep(510, 550, 10, buff_size=10, interval_ms=1)
+        #nd.plotter(dark_data)
 
         # sweep the wavelength of the detector from 500 to 550 with an interval of 10 nm. At each wavelength the buffer size is 10 and the time between samples is 1 ms
         #light_data = nd.sweep(500, 550, 10, buff_size=10, interval_ms=1)
@@ -340,5 +442,7 @@ if __name__ == '__main__':
     else:
         nd.status != 'Connected'
         print('Cannot connect.')
+        
+
 
 
