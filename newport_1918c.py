@@ -12,7 +12,7 @@ import os, sys
 import matplotlib.pyplot as plt
 import warnings
 import numpy as np
-np.warnings.filterwarnings('ignore')
+np.warnings.filterwarnings('ignore') #Supress Numpy float to int deprecation warning
 
 class CommandError(Exception):
     '''The function in the usbdll.dll was not sucessfully evaluated'''
