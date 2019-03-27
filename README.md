@@ -8,19 +8,17 @@ For connecting the hardware to the computer, see the [reference manual](http://a
 
 
 ## Installing the powermeter and usbdriver 
-[Click here to download the newport powermeter Application and driver](http://assets.newport.com/webDocuments-EN/images/Computer_Interface_Software_v3.0.2.zip)
+[Click here to download the newport powermeter driver](ftp://download.newport.com/Software/Newport_USB_Driver/)
 
 * On a 32 bit computer:
 	1. Unzip the file
-	2. Install the drivers and the power application found PowerMeter 3.0.2\win32
-	3. run both PMSetup32.msi and USBDriverSetup32.msi (in sub folder). This should install drivers and the newport powermeter application at C:\Program Files\Newport
-	4. LIBNAME (argument that is needed to intialize the instrument) in the case  will be r'C:\Program Files\Newport\Newport USB Driver\Bin\usbdll.dll'
+	2. Install the drivers
+	3. LIBNAME (argument that is needed to intialize the instrument) in the case  will be r'C:\Program Files\Newport\Newport USB Driver\Bin\usbdll.dll'
 
 * On a 64 bit computer:
 	1. Unzip the file.
-	2. Install the drivers and the power application found PowerMeter 3.0.2\x86Onx64
-	3. run both PMSetup32on64.msi and USBDriverSetup32on64.msi (in sub folder). This should install drivers and the newport powermeter application at C:\Program Files (x86)\Newport
-	4. LIBNAME (argument that is needed to intialize the instrument) in the case  will be r'C:\Program Files (x86)\Newport\Newport USB Driver\Bin\usbdll.dll'
+	2. Install the "32 bit on 64 bit" diver
+	3. LIBNAME (argument that is needed to intialize the instrument) in the case  will be r'C:\Program Files (x86)\Newport\Newport USB Driver\Bin\usbdll.dll'
 
 Before you run the python module, make sure that you can run the newport powermeter application. This will ensure that the drivers are installed properly and there is no problem communicating with the instrument.
 
