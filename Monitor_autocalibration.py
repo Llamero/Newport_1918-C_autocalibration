@@ -8,7 +8,7 @@ Created on Sun Jan 12 13:06:17 2014
 #Originally from: https://github.com/plasmon360/python_newport_1918_powermeter
 from ctypes import * #Convert variables to C for power meter driver
 import time #Sleep for set times
-from datetime import datetime #Get current date to append to file names
+from datetime import datetime, timedelta #Get current date to append to file names
 import os, sys
 import contextlib #Block pygame spam
 import matplotlib.pyplot as plt #plot results
@@ -445,7 +445,7 @@ if __name__ == '__main__':
         baseColor = [False, True, False] #Which base colors to include in image - red, green, blue
         
         #Get output directory for calibration info
-        setupDic = {"MODE": 0, "ANALOGFILTER": 0, "DIGITALFILTER": 0, "AUTO": 1, "UNITS": 2, "DS:INT": 1, "Lambda": 530, "ATT": 0, "DS:SIZE": 1000, "ZEROVAL": 0}
+        setupDic = {"MODE": 0, "ANALOGFILTER": 0, "DIGITALFILTER": 0, "AUTO": 1, "UNITS": 2, "DS:INT": 1, "Lambda": 530, "ATT": 0, "DS:SIZE": 2000, "ZEROVAL": 0}
         setup(True)
               
         #Get output directory
@@ -465,16 +465,17 @@ if __name__ == '__main__':
         
         #Initialize pygame window
         displayObj = pygame.display.Info()
-        #screen = pygame.display.set_mode((displayObj.current_w, displayObj.current_h),  pygame.FULLSCREEN)
-        screen = pygame.display.set_mode((displayObj.current_w, displayObj.current_h))
-        #pygame.mouse.set_visible(False)
-        event = pygame.event.poll()
+        screen = pygame.display.set_mode((displayObj.current_w, displayObj.current_h),  pygame.FULLSCREEN)
+        #screen = pygame.display.set_mode((displayObj.current_w, displayObj.current_h))
+        pygame.mouse.set_visible(False)
+        event = pygame.event.poll() #Keep OS from timing out pygame window
 
         
         #Measure monitor intensities
         powerArray = OrderedDict()
         plotList = [([None]*nBin) for i in range(nSample)]
         sampleOrder = list(range(nBin)) 
+        startTime = time.time()
         for b in range(nSample):
             powerArray = {"Int": [None]*nBin, "Min": [None]*nBin, "Max": [None]*nBin, "Mean": [None]*nBin, "StDev": [None]*nBin} #Initialize measurement matrix
             random.seed(b) #Set seed so random order is identical between monitors
@@ -484,8 +485,13 @@ if __name__ == '__main__':
                     f.write(key + "\t")
                 f.write("\n")
                 for a in range(nBin):
-                    percent = str(round(100*(((b*nBin)+a)/(nSample*nBin)), 1)) + "% complete."
-                    print("Testing image " + str(a+1) + " of " + str(nBin) + ", Sample " + str(b+1) + " of " + str(nSample) + ", " + percent)
+                    #Print progress updates
+                    percent = round(100*(((b*nBin)+a)/(nSample*nBin)), 1)
+                    print("Testing image " + str(a+1) + " of " + str(nBin) + ", Sample " + str(b+1) + " of " + str(nSample) + ", " + str(percent) + "% complete.")
+                    if percent > 0:
+                        timeLeft = str(timedelta(seconds=((time.time() - startTime)*((100-percent)/percent))))
+                        print("Approximate time remaining (minutes): " + timeLeft)
+                    
                     index = sampleOrder[a] #Get next index in shuffled list
                     
                     color = (int(baseColor[0]*index), int(baseColor[1]*index), int(baseColor[2]*index)) 
@@ -504,6 +510,9 @@ if __name__ == '__main__':
                     f.write("\n")
                     
                 plotList[b] = powerArray["Mean"] #Export mean meansurements to plot list
+        
+        with open(outDir + "Calibration Setup - " + str(datetime.now())[:10] + ".txt", "a") as f:
+            f.write("Total duration of calibration: " + str(timedelta(seconds=(time.time() - startTime))))
         
         #Generate final LUT from average of sample reads
         calibrationLUT = [0]*nBin
