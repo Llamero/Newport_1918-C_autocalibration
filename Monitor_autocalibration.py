@@ -6,18 +6,20 @@ Created on Sun Jan 12 13:06:17 2014
 
 """
 #Originally from: https://github.com/plasmon360/python_newport_1918_powermeter
-from ctypes import *
-import time
+from ctypes import * #Convert variables to C for power meter driver
+import time #Sleep for set times
+from datetime import datetime #Get current date to append to file names
 import os, sys
-import contextlib
-import matplotlib.pyplot as plt
-import warnings
-import numpy as np
+import contextlib #Block pygame spam
+import matplotlib.pyplot as plt #plot results
+import warnings #Suppress numpy float to int warning
+import numpy as np #Create evenly space lists over set interval - linspace
 with contextlib.redirect_stdout(None): #Block pygame boot spam - https://stackoverflow.com/questions/51464455/why-when-import-pygame-it-prints-the-version-and-welcome-message-how-delete-it
     import pygame #Show images and log keypress events
 from pygame.locals import * #Import pyGame constants locally
-from PIL import Image, ImageDraw #Draw images and save as PNG
-from tkinter import Tk, filedialog
+from tkinter import Tk, filedialog #Create directory GUI
+import random #Shuffle list order
+from collections import OrderedDict #Preserve dictionary order
 
 np.warnings.filterwarnings('ignore') #Supress Numpy float to int deprecation warning
 
@@ -210,7 +212,7 @@ class Newport_1918c():
             try:
                 status = self.ask("PM:PWS?")
                 print(status)
-                status = int(status.split(", ")[1], 16)
+                status = int(status.split(", ")[1], 16) #Convert hex string to int
                 
                 if(status & 1): #If bit(0) is 1 - detector is saturating
                     print("WARNING: Detector is saturating, please turn off light source immediately!")
@@ -293,10 +295,13 @@ class Newport_1918c():
         wave = data[0::2]
         power = data[1::2]
         return [wave, power]
-
-    def plotter_instantpower(self, data):
+    
+    def plotter_multisample(self, data):
         plt.close('All')
-        plt.plot(data[0], data[1], '-ro')
+        sampleOrder = list(range(len(data[0])))
+        for a in range(len(data)):
+            plt.plot(sampleOrder, data[a], linewidth=1)
+            plt.draw()
         plt.show()
 
     def plotter(self, data):
@@ -317,13 +322,13 @@ class Newport_1918c():
 
         """
         #print('You are connected to the first device with deviceid/usb address ' + str(self.serial_number))
-        cmd = ''
-        while cmd != 'exit()':
-            cmd = input('Newport console, Type exit() to leave> ')
+        cmd = None
+        while cmd != '':
+            cmd = input('Newport console, Type command or press <Enter> to leave> ')
             if cmd.find('?') >= 0:
                 answer = self.ask(cmd)
                 print(answer)
-            elif cmd.find('?') < 0 and cmd != 'exit()':
+            elif cmd.find('?') < 0 and cmd != '':
                 self.write(cmd)
         else:
             print("Exiting the Newport console")
@@ -334,86 +339,92 @@ def getDir(): #https://stackoverflow.com/questions/19944712/browse-for-file-path
     root.withdraw()
     currdir = os.getcwd()
     outDir = filedialog.askdirectory(parent=root, initialdir=currdir, title='Please select an output directory')
+    root.destroy() #Destroy Tk, or else its unclosed mainloop will mess up pyplot
     return outDir
 
 def drawImage(intensity):
-    #Create reference image
-    displayObj = pygame.display.Info()
-    image = Image.new("RGB", (displayObj.current_w, displayObj.current_h), color=(0, intensity, 0)) #Create and image filled with background color
-    drawObject = ImageDraw.Draw(image) #Create drawing context
-    image.save(outDir + "temp.png", format="PNG")
-    
-    #Display reference image
-    windowSurfaceObj = pygame.display.set_mode((displayObj.current_w, displayObj.current_h), pygame.FULLSCREEN)
-    #windowSurfaceObj = pygame.display.set_mode((displayObj.current_w, displayObj.current_h))
-    tempImage = pygame.image.load(outDir + "temp.png")
-    #Hide mouse cursor
-    pygame.mouse.set_visible(False)
-    windowSurfaceObj.blit(tempImage,(0,0))
-    pygame.display.update()
+    #Display image
+    event = pygame.event.poll() #Prevent OS from thinking display is hanging
+    screen.fill(intensity)
+    pygame.display.flip() #Refresh display
 
-def setup():
+def setup(useDefaults):
     global setupDic
+    global nBin
+    global nSample
+    global readDelay
+    global baseColor
     
-    #Check if dictionary is set, if not, prompt for values
-    if "ATT" not in setupDic.keys():
+    def getNum(text):
+        num = -1
+        while num < 1:
+            num = input(text)
+            try:
+                num=int(num)
+            except ValueError:
+                print("ERROR: The wavelength must be an integer value.")
+                num=-1
+        return num
+
+    def getBool(text):
         while True:
-            #Select whether attenuator is present
-            att = input("Is the attenuator in use (\"yes\" or \"no\")>").lower()
-            if att.startswith("y") and "n" not in att:
-                att = 1
-                break
-            elif att.startswith("n") and "y" not in att:
-                att = 0
-                break
+            bool = input(text).lower()
+            if bool.startswith("y") and "n" not in bool:
+                bool = 1
+                return bool
+            elif bool.startswith("n") and "y" not in bool:
+                bool = 0
+                return bool
             else:
                print("ERROR: The answer must be \"yes\" or \"no\".")
-        setupDic["ATT"] = att
-
-
-    
-        #Get wavelength
-        minL = int(nd.ask('PM:MIN:Lambda?'))
-        maxL = int(nd.ask('PM:MAX:Lambda?'))
-        wl = -1
-        while wl < minL or wl > maxL:
-            wl = input("Please enter the wavelength (" + str(minL) + "-" + str(maxL) + ")>")
-            try:
-                wl=int(wl)
-            except ValueError:
-                print("ERROR: The wavelength must be an integer value.")
-                wl=-1
-        setupDic["Lambda"] = wl
+        
+    if useDefaults:
+        useDefaults = getBool("Would you like to use the default values (\"yes\" or \"no\")>")
+        
+        if not useDefaults: #If no, allow user to enter default values
+            #Select whether attenuator is present
+            setupDic["ATT"] = getBool("Is the attenuator in use (\"yes\" or \"no\")>")
+        
+            #Get wavelength
+            minL = int(nd.ask('PM:MIN:Lambda?'))
+            maxL = int(nd.ask('PM:MAX:Lambda?'))
+            wl = -1
+            while wl < minL or wl > maxL:
+                wl = input("Please enter the wavelength (" + str(minL) + "-" + str(maxL) + ")>")
+                try:
+                    wl=int(wl)
+                except ValueError:
+                    print("ERROR: The wavelength must be an integer value.")
+                    wl=-1
+            setupDic["Lambda"] = wl
+                
+            #Select the desired number of averages
+            setupDic["DS:SIZE"] = getNum("Please enter the number of averages>")
             
-        #Select the desired number of averages
-        nAv = -1
-        while nAv < 1:
-            nAv = input("Please enter the number of averages>")
-            try:
-                nAv=int(nAv)
-            except ValueError:
-                print("ERROR: The wavelength must be an integer value.")
-                nAv=-1
-        setupDic["DS:SIZE"] = nAv
-        
-        #Setup current state before zeroing
-        for key, value in setupDic.items():
-            nd.write("PM:" + key + " " + str(value))
-        
-        #Get zero value
+            #Get protocol parameters
+            nBin = getNum("Please enter the number of intensity steps to measure (ex: 256 for monitors)>")
+            nSample = getNum("Please enter the number of replicate measurements to perform>")
+            readDelay = getNum("Please enter the number of seconds to pause before taking a reading>")
+            baseColor[0] = getBool("Do you want to analyze the RED channel (\"yes\" or \"no\")>")
+            baseColor[1] = getBool("Do you want to analyze the GREEN channel (\"yes\" or \"no\")>")
+            baseColor[2] = getBool("Do you want to analyze the BLUE channel (\"yes\" or \"no\")>")
+            
+
+    #Setup current state before zeroing    
+    for key, value in setupDic.items():
+        nd.write("PM:" + key + " " + str(value))
+    
+    #Get zero value if not yet set
+    if setupDic["ZEROVAL"] <= 0:
         dummy = input("Zeroing: Please turn off the reference monitor and press <Enter>")
         zeroDic = nd.read_buffer(wavelength=setupDic["Lambda"], buff_size=setupDic["DS:SIZE"], interval_ms=setupDic["DS:INT"])
         setupDic["ZEROVAL"] = zeroDic["Mean"]
         nd.write("PM:ZEROVAL " + str(setupDic["ZEROVAL"]))
         input("Setup complete, please turn on monitor and press <Enter>.")
     
-    else:
-        for key, value in setupDic.items():
-            nd.write("PM:" + key + " " + str(value))
-    
 if __name__ == '__main__':    
     pygame.init() #Start pygame
-    
+        
     # Initialze a instrument object. You might have to change the LIBname or product_id.    
     nd = Newport_1918c(LIBNAME = r"C:\Program Files (x86)\Newport\Newport USB Driver\Bin\usbdll.dll",product_id=0xCEC7 )
     # Print the status of the newport detector.
@@ -427,26 +438,99 @@ if __name__ == '__main__':
         print('Connected to ' + nd.ask('*IDN?'))
         print("Make sure to use the attenuator if the output is over 4.0 mW!")
         
+        #Set constants############################################################################################################################
+        nBin = 256
+        nSample = 3
+        readDelay = 2
+        baseColor = [False, True, False] #Which base colors to include in image - red, green, blue
+        
         #Get output directory for calibration info
-        setupDic = {"MODE": 0, "ANALOGFILTER": 4, "DIGITALFILTER": 10000, "AUTO": 1, "UNITS": 2, "DS:INT": 10, "ZEROVAL": 0}
-        setup()
+        setupDic = {"MODE": 0, "ANALOGFILTER": 0, "DIGITALFILTER": 0, "AUTO": 1, "UNITS": 2, "DS:INT": 1, "Lambda": 530, "ATT": 0, "DS:SIZE": 1000, "ZEROVAL": 0}
+        setup(True)
+              
+        #Get output directory
         outDir = getDir()
         
+        #Print calibration setup
+        with open(outDir + "Calibration Setup - " + str(datetime.now())[:10] + ".txt", "w+") as f:
+            setup = str(setupDic)[1:-1].split(", ")
+            f.write("Power meter configuration: \n")
+            for line in setup:
+                f.write(line + "\n")
+            f.write("------------------------------------\n")
+            f.write("Protocol parameters: \n")
+            f.write("Maximum pixel intensity: " + str(nBin) + "\n")
+            f.write("Number of samples: " + str(nSample) + "\n")
+            f.write("Read delay (s): " + str(readDelay) + "\n")
+        
+        #Initialize pygame window
+        displayObj = pygame.display.Info()
+        #screen = pygame.display.set_mode((displayObj.current_w, displayObj.current_h),  pygame.FULLSCREEN)
+        screen = pygame.display.set_mode((displayObj.current_w, displayObj.current_h))
+        #pygame.mouse.set_visible(False)
+        event = pygame.event.poll()
+
+        
         #Measure monitor intensities
-        nBin = 256
-        powerArray = {"Min": [None]*nBin, "Max": [None]*nBin, "Mean": [None]*nBin, "StDev": [None]*nBin, "Int": [None]*nBin} #Initialize measurement matrix
+        powerArray = OrderedDict()
+        plotList = [([None]*nBin) for i in range(nSample)]
+        sampleOrder = list(range(nBin)) 
+        for b in range(nSample):
+            powerArray = {"Int": [None]*nBin, "Min": [None]*nBin, "Max": [None]*nBin, "Mean": [None]*nBin, "StDev": [None]*nBin} #Initialize measurement matrix
+            random.seed(b) #Set seed so random order is identical between monitors
+            random.shuffle(sampleOrder)
+            with open(outDir + "Calibration " + str(b+1) + " of " + str(nSample) + " - " + str(datetime.now())[:10] + ".xls", "w+") as f: #Create results file
+                for key, value in powerArray.items(): #Write header to reults file
+                    f.write(key + "\t")
+                f.write("\n")
+                for a in range(nBin):
+                    percent = str(round(100*(((b*nBin)+a)/(nSample*nBin)), 1)) + "% complete."
+                    print("Testing image " + str(a+1) + " of " + str(nBin) + ", Sample " + str(b+1) + " of " + str(nSample) + ", " + percent)
+                    index = sampleOrder[a] #Get next index in shuffled list
+                    
+                    color = (int(baseColor[0]*index), int(baseColor[1]*index), int(baseColor[2]*index)) 
+                    drawImage(color) #Create new image
+                    time.sleep(readDelay) #Wait for meter to stabilize
+                    
+                    tempDic = nd.read_buffer(wavelength=setupDic["Lambda"], buff_size=setupDic["DS:SIZE"], interval_ms=setupDic["DS:INT"]) #Gte reading
+                    print(str(tempDic)[1:-1] + ", 'Int': " + str(color))
+                    for key, value in tempDic.items(): #parse reading
+                        powerArray[key][index] = float(tempDic[key])
+                    powerArray["Int"][index] = color
+                    
+                for a in range(nBin):
+                    for key, value in powerArray.items(): #send to file
+                        f.write(str(value[a]) + "\t")
+                    f.write("\n")
+                    
+                plotList[b] = powerArray["Mean"] #Export mean meansurements to plot list
+        
+        #Generate final LUT from average of sample reads
+        calibrationLUT = [0]*nBin
+        for b in range(nBin):
+            for a in range(nSample):
+                calibrationLUT[b] += plotList[a][b]
         for a in range(nBin):
-            print("Testing image " + str(a+1) + " of " + str(nBin) + ".")
-            drawImage(a)
-            time.sleep(2)
-            tempDic = nd.read_buffer(wavelength=setupDic["Lambda"], buff_size=setupDic["DS:SIZE"], interval_ms=setupDic["DS:INT"])
-            for key, value in tempDic.items():
-                powerArray[key][a] = float(tempDic[key])
-            print(str(tempDic) + " " + str(a))
-            
+            calibrationLUT[a] /= nSample
+        
+        #Output the calibration LUT
+        with open(outDir + "Calibration LUT - " + str(datetime.now())[:10] + ".txt", "w+") as f:
+            f.write("Int,Power,\n")
+            for a in range(nBin):
+                f.write(str(powerArray["Int"][a]) + "," + str(calibrationLUT[a]) + ",\n")
+        
+        #Close pygame display
         pygame.display.quit()
         pygame.quit()
-        nd.plotter(powerArray)
+        
+        #Plot results
+        nd.plotter_multisample(plotList)
+        
+        # opens a console
+        nd.console()
+
+        # Close the device
+        nd.close_device()
 
         # sweep the wavelength of the detector from 500 to 550 with an interval of 10 nm. At each wavelength the buffer size is 10 and the time between samples is 1 ms
         #light_data = nd.sweep(500, 550, 10, buff_size=10, interval_ms=1)
@@ -456,11 +540,7 @@ if __name__ == '__main__':
         #data = nd.sweep_instant_power(400, 410, 2)
         #nd.plotter_instantpower(data)
 
-        # opens a console
-        nd.console()
 
-        # Close the device
-        nd.close_device()
 
     else:
         nd.status != 'Connected'
