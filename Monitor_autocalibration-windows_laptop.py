@@ -427,6 +427,26 @@ def setup(useDefaults):
         nd.write("PM:ZEROVAL " + str(setupDic["ZEROVAL"]))
         input("Setup complete, please turn on monitor and press <Enter>.")
 
+def saturationTest():
+    os.system('taskkill /f /im explorer.exe') #Remove taskbar
+    num = None
+    while num is not '':
+        num = input("Input test intensity or press <Enter> to quit>")
+        try:
+            num=int(num)
+        except ValueError:
+            break
+        drawImage((0,num,0))
+        
+    pygame.display.quit()
+    pygame.quit()
+    # Close the device
+    nd.close_device()
+
+    #Restore taskbar
+    os.system('explorer.exe')
+    quit()
+
 def countdown(cycle):
     os.system('taskkill /f /im explorer.exe') #Remove taskbar
     input("Press <Enter> to start countdown>")
@@ -452,17 +472,26 @@ if __name__ == '__main__':
         print("Make sure to use the attenuator if the output is over 4.0 mW!")
         
         #Set constants############################################################################################################################
-        nBin = 3
-        nSample = 3
+        nBin = 256
+        nSample = 5
         readDelay = 2
         baseColor = [False, True, False] #Which base colors to include in image - red, green, blue
         
         #Get output directory for calibration info
         setupDic = {"MODE": 0, "ANALOGFILTER": 0, "DIGITALFILTER": 0, "AUTO": 1, "UNITS": 2, "DS:INT": 1, "Lambda": 530, "ATT": 0, "DS:SIZE": 2000, "ZEROVAL": 0}
         setup(True)
-              
+        
         #Get output directory
         outDir = getDir()
+        
+        #Initialize pygame window
+        displayObj = pygame.display.Info()
+        screen = pygame.display.set_mode((displayObj.current_w, displayObj.current_h),  pygame.FULLSCREEN)
+        #screen = pygame.display.set_mode((displayObj.current_w, displayObj.current_h))
+        pygame.mouse.set_visible(False)
+        event = pygame.event.poll() #Keep OS from timing out pygame window
+        
+        #saturationTest()###############################MANUAL MODE#########################
         
         #Print calibration setup
         with open(outDir + "Calibration Setup - " + str(datetime.now())[:10] + ".txt", "w+") as f:
@@ -475,13 +504,6 @@ if __name__ == '__main__':
             f.write("Maximum pixel intensity: " + str(nBin) + "\n")
             f.write("Number of samples: " + str(nSample) + "\n")
             f.write("Read delay (s): " + str(readDelay) + "\n")
-        
-        #Initialize pygame window
-        displayObj = pygame.display.Info()
-        screen = pygame.display.set_mode((displayObj.current_w, displayObj.current_h),  pygame.FULLSCREEN)
-        #screen = pygame.display.set_mode((displayObj.current_w, displayObj.current_h))
-        pygame.mouse.set_visible(False)
-        event = pygame.event.poll() #Keep OS from timing out pygame window
 
         countdown(10)
         
